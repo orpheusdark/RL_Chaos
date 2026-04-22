@@ -1,0 +1,25 @@
+name: ChaosOps
+version: 1.0.0
+environment:
+  entrypoint: env:ChaosOpsEnv
+  api:
+    app: app:app
+    reset_endpoint: /reset
+    step_endpoint: /step
+tasks:
+  - id: task1
+    entrypoint: tasks.task1:run_task
+    description: No schema drift recovery
+    score_range: [0.01, 0.99]
+  - id: task2
+    entrypoint: tasks.task2:run_task
+    description: Schema drift recovery
+    score_range: [0.01, 0.99]
+  - id: task3
+    entrypoint: tasks.task3:run_task
+    description: Schema drift with permission gate
+    score_range: [0.01, 0.99]
+scoring:
+  min: 0.01
+  max: 0.99
+  normalized: true
