@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560">
+<rect width="100%" height="100%" fill="#0b1220"/>
+<text x="34" y="46" fill="#e2e8f0" font-family="Segoe UI, Arial" font-size="28" font-weight="700">ChaosOps Learning Proof (Before vs After)</text>
+<text x="34" y="72" fill="#94a3b8" font-family="Segoe UI, Arial" font-size="14">Before: random/naive policy | After: trained lightweight policy</text>
+<line x1="52" y1="420" x2="940" y2="420" stroke="#334155"/>
+<rect x="70" y="398.12" width="54" height="21.88" fill="#f59e0b" rx="6"/>
+<rect x="142" y="170.00" width="54" height="250.00" fill="#22c55e" rx="6"/>
+<text x="97.00" y="390.12" text-anchor="middle" fill="#fde68a" font-family="Segoe UI, Arial" font-size="12">0.09</text>
+<text x="169.00" y="162.00" text-anchor="middle" fill="#bbf7d0" font-family="Segoe UI, Arial" font-size="12">1.00</text>
+<text x="132" y="444" text-anchor="middle" fill="#cbd5e1" font-family="Segoe UI, Arial" font-size="13">Success</text>
+<rect x="270" y="363.97" width="54" height="56.03" fill="#f59e0b" rx="6"/>
+<rect x="342" y="172.50" width="54" height="247.50" fill="#22c55e" rx="6"/>
+<text x="297.00" y="355.97" text-anchor="middle" fill="#fde68a" font-family="Segoe UI, Arial" font-size="12">0.22</text>
+<text x="369.00" y="164.50" text-anchor="middle" fill="#bbf7d0" font-family="Segoe UI, Arial" font-size="12">0.99</text>
+<text x="332" y="444" text-anchor="middle" fill="#cbd5e1" font-family="Segoe UI, Arial" font-size="13">Avg Score</text>
+<rect x="470" y="198.12" width="54" height="221.88" fill="#f59e0b" rx="6"/>
+<rect x="542" y="170.00" width="54" height="250.00" fill="#22c55e" rx="6"/>
+<text x="497.00" y="190.12" text-anchor="middle" fill="#fde68a" font-family="Segoe UI, Arial" font-size="12">0.89</text>
+<text x="569.00" y="162.00" text-anchor="middle" fill="#bbf7d0" font-family="Segoe UI, Arial" font-size="12">1.00</text>
+<text x="532" y="444" text-anchor="middle" fill="#cbd5e1" font-family="Segoe UI, Arial" font-size="13">Drift Aware</text>
+<rect x="670" y="170.00" width="54" height="250.00" fill="#f59e0b" rx="6"/>
+<rect x="742" y="290.76" width="54" height="129.24" fill="#22c55e" rx="6"/>
+<text x="697.00" y="162.00" text-anchor="middle" fill="#fde68a" font-family="Segoe UI, Arial" font-size="12">7.74</text>
+<text x="769.00" y="282.76" text-anchor="middle" fill="#bbf7d0" font-family="Segoe UI, Arial" font-size="12">4.00</text>
+<text x="732" y="444" text-anchor="middle" fill="#cbd5e1" font-family="Segoe UI, Arial" font-size="13">Avg Steps</text>
+<rect x="700" y="98" width="14" height="14" fill="#f59e0b"/>
+<text x="722" y="110" fill="#e2e8f0" font-family="Segoe UI, Arial" font-size="13">Before (random)</text>
+<rect x="700" y="122" width="14" height="14" fill="#22c55e"/>
+<text x="722" y="134" fill="#e2e8f0" font-family="Segoe UI, Arial" font-size="13">After (trained)</text>
+</svg>

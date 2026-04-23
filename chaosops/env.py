@@ -77,6 +77,7 @@ class ChaosOpsEnv:
                 "schema_fail_count": 0,
                 "drift_active": False,
                 "used_schema_after_drift": False,
+                "trajectory": [],
             }
             self.total_reward = 0.0
             return {
@@ -221,6 +222,17 @@ class ChaosOpsEnv:
 
             self.total_reward += reward_delta
 
+            trace_event = {
+                "step": self.state["step_count"],
+                "action": action,
+                "reward_delta": reward_delta,
+                "total_reward": self.total_reward,
+                "schema_version": self.state["api_schema_version"],
+                "result_ok": bool(result.get("ok", False)),
+                "error_code": result.get("error_code"),
+            }
+            self.state["trajectory"].append(trace_event)
+
             done = self.state["service_status"] == "running" or self.state["step_count"] >= self.max_steps
             score = self._clamp_score(self.total_reward) if done else None
 
@@ -233,4 +245,5 @@ class ChaosOpsEnv:
                 "done": done,
                 "score": score,
                 "state": deepcopy(self.state),
+                "trace_event": trace_event,
             }
