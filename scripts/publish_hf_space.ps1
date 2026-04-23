@@ -29,8 +29,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $repoUrl = "https://huggingface.co/spaces/$HFUsername/$SpaceName"
 
-git remote get-url hf 1>$null 2>$null
-if ($LASTEXITCODE -eq 0) {
+if ((git remote) -contains "hf") {
     git remote remove hf
 }
 
