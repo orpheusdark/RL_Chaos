@@ -108,11 +108,14 @@ def main() -> int:
 
         config = GRPOConfig(
             output_dir="./chaosops-grpo-out",
-            per_device_train_batch_size=1,
+            per_device_train_batch_size=2,
             num_generations=2,
             max_steps=1,
             learning_rate=1e-5,
             logging_steps=1,
+            use_cpu=True,
+            bf16=False,
+            fp16=False,
             remove_unused_columns=False,
             report_to=[],
         )
