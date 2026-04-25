@@ -31,6 +31,12 @@ python -m pip install -r requirements.txt
 python -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
+## Training Guide
+
+Use one canonical document for Colab training and evaluation:
+
+- `COLAB_COMPLETE_GUIDE.md`
+
 ## Auto Benchmark + Progress Chart
 
 ```powershell

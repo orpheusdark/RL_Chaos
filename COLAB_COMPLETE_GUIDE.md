@@ -505,8 +505,8 @@ After training, you'll have:
 │   ├── adapter_model.bin
 │   └── ...
 ├── training_results_dashboard.png  # 📌 Visualization
-├── COLAB_TRAINING_GUIDE.md
-├── QUICK_START.md
+├── Chaosops_Colab_Training.ipynb
+├── COLAB_COMPLETE_GUIDE.md
 └── README.md
 ```
 
