@@ -94,15 +94,19 @@ def generate_model_action(
     fastlm: Any,
     prompt: str,
     temperature: float,
-    max_new_tokens: int = 120,
+    max_new_tokens: int = 64,
 ) -> str:
     fastlm.for_inference(model)
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
+    input_len = int(inputs["input_ids"].shape[1])
+    # Use max_length directly to avoid repeated warnings when both max_new_tokens
+    # and generation_config.max_length are set by upstream libraries.
+    generation_max_length = min(1024, input_len + max_new_tokens)
 
     with torch.no_grad():
         out = model.generate(
             **inputs,
-            max_new_tokens=max_new_tokens,
+            max_length=generation_max_length,
             do_sample=True,
             temperature=max(0.2, temperature),
             top_p=0.95,
@@ -202,7 +206,11 @@ def train_loop(
     group_size: int,
     variation_prob: float,
 ) -> Dict[str, Any]:
-    # Lazy import so eval.py can import helper functions without pulling TRL extras.
+    model, tokenizer, fastlm = load_unsloth_qwen(model_name=model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # Import training backends after Unsloth model setup so Unsloth can patch first.
     use_trl = True
     try:
         from trl import SFTConfig, SFTTrainer
@@ -216,91 +224,93 @@ def train_loop(
         print(f"[WARN] TRL error: {trl_error}")
         from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArguments
 
-    model, tokenizer, fastlm = load_unsloth_qwen(model_name=model_name)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
     env = _make_env(max_steps=10, seed=13)
     wrapper = ChaosOpsWrapper()
 
     os.makedirs(output_dir, exist_ok=True)
 
     logs: List[Dict[str, Any]] = []
+    interrupted = False
 
     for step in range(train_steps):
-        group: List[EpisodeTrace] = []
-        for _ in range(group_size):
-            ep = run_episode(
-                env=env,
-                wrapper=wrapper,
-                model=model,
-                tokenizer=tokenizer,
-                fastlm=fastlm,
-                temperature=0.9,
-                variation_mode=(torch.rand(1).item() < variation_prob),
-            )
-            group.append(ep)
+        try:
+            group: List[EpisodeTrace] = []
+            for _ in range(group_size):
+                ep = run_episode(
+                    env=env,
+                    wrapper=wrapper,
+                    model=model,
+                    tokenizer=tokenizer,
+                    fastlm=fastlm,
+                    temperature=0.9,
+                    variation_mode=(torch.rand(1).item() < variation_prob),
+                )
+                group.append(ep)
 
-        ds = build_grpo_style_dataset(group)
-        if use_trl:
-            cfg = SFTConfig(
-                output_dir=output_dir,
-                per_device_train_batch_size=2,
-                gradient_accumulation_steps=2,
-                num_train_epochs=1,
-                learning_rate=2e-4,
-                logging_steps=1,
-                max_seq_length=1024,
-                save_strategy="no",
-                report_to=[],
-            )
+            ds = build_grpo_style_dataset(group)
+            if use_trl:
+                cfg = SFTConfig(
+                    output_dir=output_dir,
+                    per_device_train_batch_size=2,
+                    gradient_accumulation_steps=2,
+                    num_train_epochs=1,
+                    learning_rate=2e-4,
+                    logging_steps=1,
+                    max_seq_length=1024,
+                    save_strategy="no",
+                    report_to=[],
+                )
 
-            trainer = SFTTrainer(
-                model=model,
-                tokenizer=tokenizer,
-                train_dataset=ds,
-                dataset_text_field="text",
-                args=cfg,
-            )
-            trainer.train()
-        else:
-            tokenized = ds.map(
-                lambda batch: tokenizer(batch["text"], truncation=True, max_length=1024),
-                batched=True,
-                remove_columns=["text"],
-            )
-            args = TrainingArguments(
-                output_dir=output_dir,
-                per_device_train_batch_size=2,
-                gradient_accumulation_steps=2,
-                num_train_epochs=1,
-                learning_rate=2e-4,
-                logging_steps=1,
-                save_strategy="no",
-                report_to=[],
-                remove_unused_columns=False,
-            )
-            collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-            trainer = Trainer(
-                model=model,
-                args=args,
-                train_dataset=tokenized,
-                data_collator=collator,
-            )
-            trainer.train()
+                trainer = SFTTrainer(
+                    model=model,
+                    tokenizer=tokenizer,
+                    train_dataset=ds,
+                    dataset_text_field="text",
+                    args=cfg,
+                )
+                trainer.train()
+            else:
+                tokenized = ds.map(
+                    lambda batch: tokenizer(batch["text"], truncation=True, max_length=1024),
+                    batched=True,
+                    remove_columns=["text"],
+                )
+                args = TrainingArguments(
+                    output_dir=output_dir,
+                    per_device_train_batch_size=2,
+                    gradient_accumulation_steps=2,
+                    num_train_epochs=1,
+                    learning_rate=2e-4,
+                    logging_steps=1,
+                    save_strategy="no",
+                    report_to=[],
+                    remove_unused_columns=False,
+                )
+                collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+                trainer = Trainer(
+                    model=model,
+                    args=args,
+                    train_dataset=tokenized,
+                    data_collator=collator,
+                )
+                trainer.train()
 
-        avg_reward = sum(ep.total_reward for ep in group) / len(group)
-        success_rate = sum(1 for ep in group if ep.success) / len(group)
-        avg_steps = sum(ep.steps for ep in group) / len(group)
+            avg_reward = sum(ep.total_reward for ep in group) / len(group)
+            success_rate = sum(1 for ep in group if ep.success) / len(group)
+            avg_steps = sum(ep.steps for ep in group) / len(group)
 
-        row = {
-            "step": step,
-            "avg_reward": avg_reward,
-            "success_rate": success_rate,
-            "avg_steps": avg_steps,
-        }
-        logs.append(row)
-        print(json.dumps(row))
+            row = {
+                "step": step,
+                "avg_reward": avg_reward,
+                "success_rate": success_rate,
+                "avg_steps": avg_steps,
+            }
+            logs.append(row)
+            print(json.dumps(row))
+        except KeyboardInterrupt:
+            interrupted = True
+            print("\n[WARN] Training interrupted. Saving partial adapter and metrics...")
+            break
 
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
@@ -309,7 +319,12 @@ def train_loop(
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(logs, f, indent=2)
 
-    return {"output_dir": output_dir, "metrics_path": metrics_path}
+    return {
+        "output_dir": output_dir,
+        "metrics_path": metrics_path,
+        "interrupted": interrupted,
+        "completed_steps": len(logs),
+    }
 
 
 def main() -> int:
