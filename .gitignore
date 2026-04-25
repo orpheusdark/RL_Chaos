@@ -13,4 +13,5 @@ chaosops/chaosops-grpo-out/
 *.bin
 chaosops-*-grpo/
 chaosops-*-grpo-*/
+chaosops-rl-*/
 train_metrics.json
