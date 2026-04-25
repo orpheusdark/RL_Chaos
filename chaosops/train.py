@@ -10,18 +10,22 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 import torch
-from torch.distributions import Categorical
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from env import ChaosOpsEnv
 from wrapper import ChaosOpsWrapper
 
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 
 @dataclass
 class Transition:
-    reward: float
-    logprob: torch.Tensor
+    state: Dict[str, Any]
+    action_text: str
     action: str
+    token_ids: List[int]
+    reward: float
+    old_logprob: float
 
 
 @dataclass
@@ -72,6 +76,10 @@ def _extract_observation(out: Dict[str, Any]) -> Dict[str, Any]:
     return {"service": "auth_service", "status": "crashed", "cpu_limit": "500m"}
 
 
+def _extract_reward(out: Dict[str, Any]) -> float:
+    return float(out.get("reward", out.get("reward_delta", 0.0)))
+
+
 def load_unsloth_qwen(model_name: str = "Qwen/Qwen2.5-0.5B"):
     """
     Preferred path: Unsloth + QLoRA.
@@ -107,70 +115,88 @@ def load_unsloth_qwen(model_name: str = "Qwen/Qwen2.5-0.5B"):
         return model, tokenizer, None
 
 
-def _top_p_filter_logits(logits: torch.Tensor, top_p: float) -> torch.Tensor:
-    if top_p >= 1.0:
-        return logits
-    sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
-    cumulative_probs = torch.softmax(sorted_logits, dim=-1).cumsum(dim=-1)
-    sorted_mask = cumulative_probs > top_p
-    sorted_mask[..., 1:] = sorted_mask[..., :-1].clone()
-    sorted_mask[..., 0] = False
-    mask = torch.zeros_like(logits, dtype=torch.bool)
-    mask.scatter_(dim=-1, index=sorted_indices, src=sorted_mask)
-    return logits.masked_fill(mask, float("-inf"))
-
-
-def sample_action_and_logprob(
+def sample_action_with_generate(
     model: Any,
     tokenizer: Any,
     prompt: str,
     temperature: float,
     top_p: float,
     max_new_tokens: int,
-) -> Tuple[str, torch.Tensor]:
-    """
-    Sample one action text with token-level logprob sum tracked for policy gradient.
-    """
-    model.train()
-    enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-    input_ids = enc["input_ids"].to(model.device)
-    attention_mask = enc.get("attention_mask")
-    if attention_mask is not None:
-        attention_mask = attention_mask.to(model.device)
+) -> Tuple[str, List[int], float]:
+    model.eval()
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.max_length = None
+    enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
+    input_len = int(enc["input_ids"].shape[1])
+    with torch.no_grad():
+        outputs = model.generate(
+            **enc,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=max(0.7, min(1.0, float(temperature))),
+            top_p=top_p,
+            return_dict_in_generate=True,
+            output_scores=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    sequences = outputs.sequences[0]
+    generated_ids = sequences[input_len:].tolist()
+    action_text = tokenizer.decode(generated_ids, skip_special_tokens=True)[-1200:]
 
-    sampled_token_ids: List[int] = []
-    token_logprobs: List[torch.Tensor] = []
-    eos_id = tokenizer.eos_token_id
-    temp = max(0.2, float(temperature))
+    token_logprobs: List[float] = []
+    if outputs.scores:
+        for idx, score_t in enumerate(outputs.scores):
+            if idx >= len(generated_ids):
+                break
+            log_probs = torch.log_softmax(score_t[0], dim=-1)
+            token_id = int(generated_ids[idx])
+            token_logprobs.append(float(log_probs[token_id].item()))
+    old_logprob = float(sum(token_logprobs))
 
-    for _ in range(max_new_tokens):
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-        next_logits = outputs.logits[:, -1, :] / temp
-        next_logits = _top_p_filter_logits(next_logits, top_p=top_p)
-        dist = Categorical(logits=next_logits)
-        next_token = dist.sample()  # [1]
-        token_logprob = dist.log_prob(next_token).squeeze(0)
+    del outputs, enc, sequences
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return action_text, generated_ids, old_logprob
 
-        sampled_token_ids.append(int(next_token.item()))
-        token_logprobs.append(token_logprob)
 
-        next_token_expanded = next_token.unsqueeze(-1)
-        input_ids = torch.cat([input_ids, next_token_expanded], dim=-1)
-        if attention_mask is not None:
-            attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_expanded)], dim=-1)
+def compute_logprob_for_tokens_teacher_forced(
+    model: Any,
+    tokenizer: Any,
+    prompt: str,
+    target_token_ids: List[int],
+) -> torch.Tensor:
+    if not target_token_ids:
+        return torch.zeros((), device=model.device, dtype=torch.float32, requires_grad=True)
 
-        if eos_id is not None and int(next_token.item()) == int(eos_id):
-            break
+    enc = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
+    prompt_ids = enc["input_ids"]
+    prompt_mask = enc.get("attention_mask")
+    if prompt_mask is None:
+        prompt_mask = torch.ones_like(prompt_ids, device=model.device)
+    target = torch.tensor([target_token_ids], device=model.device, dtype=prompt_ids.dtype)
+    target_mask = torch.ones_like(target, device=model.device)
 
-    if sampled_token_ids:
-        action_text = tokenizer.decode(sampled_token_ids, skip_special_tokens=True)
-        total_logprob = torch.stack(token_logprobs).sum()
-    else:
-        action_text = ""
-        # Zero with gradient path if model output exists.
-        total_logprob = outputs.logits[:, -1, 0].sum() * 0.0
+    full_ids = torch.cat([prompt_ids, target], dim=1)
+    full_mask = torch.cat([prompt_mask, target_mask], dim=1)
+    out = model(input_ids=full_ids, attention_mask=full_mask)
+    logits = out.logits[:, :-1, :]
+    labels = full_ids[:, 1:]
+    prompt_len = int(prompt_ids.shape[1])
 
-    return action_text[-1200:], total_logprob
+    start = max(0, prompt_len - 1)
+    end = start + len(target_token_ids)
+    target_logits = logits[:, start:end, :]
+    target_labels = labels[:, start:end]
+
+    log_probs = torch.log_softmax(target_logits, dim=-1)
+    gathered = torch.gather(log_probs, dim=-1, index=target_labels.unsqueeze(-1)).squeeze(-1)
+    gathered = torch.clamp(gathered, min=-100.0, max=0.0)
+    total = gathered.sum()
+
+    del enc, prompt_ids, prompt_mask, target, target_mask, full_ids, full_mask, out, logits, labels, target_logits, target_labels, log_probs, gathered
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return total
 
 
 def generate_model_action(
@@ -218,9 +244,10 @@ def run_episode(
     transitions: List[Transition] = []
     final = None
 
+    prev_action = ""
     for _ in range(env.max_steps):
         prompt = wrapper.observation_to_prompt(obs)
-        raw_text, action_logprob = sample_action_and_logprob(
+        raw_text, token_ids, old_logprob = sample_action_with_generate(
             model=model,
             tokenizer=tokenizer,
             prompt=prompt,
@@ -230,16 +257,38 @@ def run_episode(
         )
         action_obj = wrapper.parse_model_output(raw_text)
         out = env.step(action_obj["action"], action_obj["payload"])
-        reward = float(out.get("reward", out.get("reward_delta", 0.0)))
+
+        base_reward = _extract_reward(out)
+        repeated = prev_action == str(action_obj["action"])
+        useless = (not out.get("result", {}).get("ok", False)) and (not out.get("done", False))
+        resolved = bool(out.get("state", {}).get("service_status") == "running")
+        worsened = out.get("state", {}).get("schema_fail_count", 0) > 0 or (
+            out.get("result", {}).get("error_code") == "NO_PERMISSION"
+        )
+
+        shaped_reward = -0.01 + base_reward
+        if resolved:
+            shaped_reward += 1.0
+        if useless:
+            shaped_reward -= 0.5
+        if repeated:
+            shaped_reward -= 0.2
+        if worsened:
+            shaped_reward -= 0.3
+
         transitions.append(
             Transition(
-                reward=reward,
-                logprob=action_logprob,
+                state=obs,
+                action_text=raw_text,
                 action=str(action_obj["action"]),
+                token_ids=token_ids,
+                reward=float(shaped_reward),
+                old_logprob=float(old_logprob),
             )
         )
         obs = _extract_observation(out)
         final = out
+        prev_action = str(action_obj["action"])
         if out["done"]:
             break
 
@@ -277,7 +326,7 @@ def run_sanity_check(
     out = _reset_task3(env, variation_mode=False)
     obs = _extract_observation(out)
     prompt = wrapper.observation_to_prompt(obs)
-    raw_text, _logprob = sample_action_and_logprob(
+    raw_text, _tokens, _logprob = sample_action_with_generate(
         model=model,
         tokenizer=tokenizer,
         prompt=prompt,
@@ -318,8 +367,11 @@ def train_loop(
     model, tokenizer, fastlm = load_unsloth_qwen(model_name=model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    if max_new_tokens > 32:
+        raise ValueError("max_new_tokens must be <= 32 for T4-safe training.")
+    if group_size > 2:
+        raise ValueError("group_size must be <= 2 for T4-safe training.")
     if fastlm is not None:
-        # Needed after inference patching.
         model.train()
 
     env = _make_env(max_steps=10, seed=13)
@@ -359,28 +411,37 @@ def train_loop(
                 episodes.append(ep)
 
             all_returns: List[float] = []
-            logprob_terms: List[torch.Tensor] = []
+            transition_pack: List[Tuple[Transition, float]] = []
             action_counter: Counter[str] = Counter()
             for ep in episodes:
                 ep_returns = compute_discounted_returns(ep, gamma=gamma)
                 all_returns.extend(ep_returns)
                 for tr, ret in zip(ep.transitions, ep_returns):
                     action_counter.update([tr.action])
-                    logprob_terms.append(tr.logprob)
+                    transition_pack.append((tr, ret))
 
-            if not logprob_terms:
+            if not transition_pack:
                 raise RuntimeError("No transitions collected; cannot update policy.")
 
             returns_tensor = torch.tensor(all_returns, dtype=torch.float32, device=model.device)
-            # Normalize returns to reduce gradient variance / NaN risk.
             advantages = (returns_tensor - returns_tensor.mean()) / (returns_tensor.std(unbiased=False) + 1e-6)
             if torch.isnan(advantages).any():
                 raise RuntimeError("NaN detected in normalized advantages.")
 
-            logprob_tensor = torch.stack(logprob_terms)
-            # Clamp extreme values for stability.
-            logprob_tensor = torch.clamp(logprob_tensor, min=-100.0, max=0.0)
-            loss = -(logprob_tensor * advantages).mean()
+            logprob_terms: List[torch.Tensor] = []
+            for (tr, _ret), adv in zip(transition_pack, advantages):
+                prompt = wrapper.observation_to_prompt(tr.state)
+                lp = compute_logprob_for_tokens_teacher_forced(
+                    model=model,
+                    tokenizer=tokenizer,
+                    prompt=prompt,
+                    target_token_ids=tr.token_ids,
+                )
+                if torch.isnan(lp) or torch.isinf(lp):
+                    raise RuntimeError(f"Invalid logprob for action={tr.action} text={tr.action_text[:120]}")
+                logprob_terms.append(lp * adv)
+
+            loss = -torch.stack(logprob_terms).mean()
             if torch.isnan(loss) or torch.isinf(loss):
                 raise RuntimeError("NaN/Inf policy loss before backward.")
 
@@ -409,6 +470,24 @@ def train_loop(
             }
             logs.append(row)
             print(json.dumps(row))
+
+            total_actions = max(1, sum(action_counter.values()))
+            top_action_count = max(action_counter.values()) if action_counter else 0
+            repeat_ratio = top_action_count / total_actions
+            if repeat_ratio > 0.70 and update >= 3:
+                raise RuntimeError(f"Action repetition too high: {repeat_ratio:.2f}")
+
+            if episodes and episodes[0].transitions:
+                debug_traj = []
+                for tr in episodes[0].transitions:
+                    debug_traj.append(
+                        {
+                            "state": tr.state,
+                            "action": tr.action,
+                            "reward": tr.reward,
+                        }
+                    )
+                print(json.dumps({"trajectory_debug": debug_traj}, ensure_ascii=True))
 
             recent_rewards.append(avg_reward)
             recent_losses.append(loss_value)
@@ -452,7 +531,7 @@ def main() -> int:
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top_p", type=float, default=0.9)
-    parser.add_argument("--max_new_tokens", type=int, default=80)
+    parser.add_argument("--max_new_tokens", type=int, default=32)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     args = parser.parse_args()
 
