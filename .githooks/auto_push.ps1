@@ -28,8 +28,26 @@ if ($remotes -contains "origin") {
 }
 
 if ($remotes -contains "hf") {
-	Write-Host "Pushing $branch to hf..."
-	git push hf $branch
+	# HF Space push uses a synthetic snapshot commit so local history issues
+	# (for example, previously tracked binaries) do not block deployment.
+	Write-Host "Pushing snapshot of $branch to hf/main..."
+	git fetch hf main --quiet
+	$tree = (git rev-parse "HEAD^{tree}").Trim()
+	$parent = ""
+	try {
+		$parent = (git rev-parse "hf/main" 2>$null).Trim()
+	} catch {
+		$parent = ""
+	}
+
+	$message = "HF sync snapshot from $branch at $(Get-Date -Format s)"
+	if ([string]::IsNullOrWhiteSpace($parent)) {
+		$snapshotCommit = ($message | git commit-tree $tree).Trim()
+	} else {
+		$snapshotCommit = ($message | git commit-tree $tree -p $parent).Trim()
+	}
+
+	git push hf "$snapshotCommit`:main"
 	if ($LASTEXITCODE -eq 0) {
 		$pushedAny = $true
 	} else {
