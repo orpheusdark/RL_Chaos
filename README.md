@@ -37,6 +37,11 @@ Use one canonical document for Colab training and evaluation:
 
 - `COLAB_COMPLETE_GUIDE.md`
 
+For Hugging Face GPU-credit training and direct adapter upload:
+
+- `HF_GPU_TRAINING.md`
+- `scripts/train_and_upload_hf.py`
+
 ## Auto Benchmark + Progress Chart
 
 ```powershell
