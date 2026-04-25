@@ -1,18 +1,12 @@
-#!/bin/sh
+#!/bin/bash
+# Auto-push to both GitHub (origin) and HuggingFace (hf) on commit
 
-set -e
+echo "Auto-pushing to both remotes..."
 
-branch="$(git rev-parse --abbrev-ref HEAD)"
+# Push to GitHub
+git push origin main 2>&1 | grep -v "already up to date" || true
 
-# Skip detached HEAD states.
-if [ "$branch" = "HEAD" ]; then
-  exit 0
-fi
+# Push to HuggingFace Space
+git push hf main 2>&1 | grep -v "already up to date" || true
 
-if git remote get-url origin >/dev/null 2>&1; then
-  git push origin "$branch"
-fi
-
-if git remote get-url hf >/dev/null 2>&1; then
-  git push hf "$branch"
-fi
+echo "Auto-push complete"

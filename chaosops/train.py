@@ -242,15 +242,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, default="./chaosops-qwen-grpo")
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-0.5B")
+    # Backward compatibility: docs and older notebooks use --episodes.
+    parser.add_argument("--episodes", type=int, default=None)
     parser.add_argument("--train_steps", type=int, default=6)
     parser.add_argument("--group_size", type=int, default=4)
     parser.add_argument("--variation_prob", type=float, default=0.3)
     args = parser.parse_args()
 
+    train_steps = args.episodes if args.episodes is not None else args.train_steps
+
     result = train_loop(
         output_dir=args.output_dir,
         model_name=args.model_name,
-        train_steps=args.train_steps,
+        train_steps=train_steps,
         group_size=args.group_size,
         variation_prob=args.variation_prob,
     )

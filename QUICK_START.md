@@ -47,14 +47,19 @@ os.chdir("/content/Chaosops/chaosops")
 print("🚀 Starting Training...")
 result = subprocess.run(
     ["python", "train.py", 
-     "--episodes", "10",
+    "--train_steps", "10",
      "--model_name", "Qwen/Qwen2.5-0.5B",
      "--output_dir", "../chaosops-qwen-grpo"],
-    capture_output=False,
+    capture_output=True,
+    text=True,
     timeout=1800
 )
 
-print("\n✅ Training complete" if result.returncode == 0 else "\n❌ Training failed")
+if result.returncode == 0:
+    print("\n✅ Training complete")
+else:
+    print(f"\n❌ Training failed (code {result.returncode})")
+    print(result.stderr)
 ```
 
 ---
@@ -148,7 +153,7 @@ print(f"✅ Saved to Google Drive: {results_dir}")
 ## Key Parameters
 
 ### Training
-- `--episodes 10` → Change to `50` for longer training
+- `--train_steps 10` → Change to `50` for longer training
 - `--model_name` → "Qwen/Qwen2.5-0.5B" (or other Qwen models)
 - `--output_dir` → Where to save LoRA adapter
 
@@ -179,7 +184,7 @@ print(f"✅ Saved to Google Drive: {results_dir}")
 
 | Issue | Solution |
 |-------|----------|
-| **Out of Memory** | Reduce `--episodes 10` to `5` |
+| **Out of Memory** | Reduce `--train_steps 10` to `5` |
 | **GPU not available** | Runtime → Change runtime type → GPU |
 | **Import errors** | `!pip install --force-reinstall -q unsloth peft` |
 | **Model download fails** | `!huggingface-cli login` (paste token) |
@@ -215,7 +220,7 @@ print(f"GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'C
 
 # Train
 os.chdir("/content/Chaosops/chaosops")
-subprocess.run(["python", "train.py", "--episodes", "10", "--output_dir", "../chaosops-qwen-grpo"],
+subprocess.run(["python", "train.py", "--train_steps", "10", "--output_dir", "../chaosops-qwen-grpo"],
                capture_output=False, timeout=1800)
 
 # Evaluate

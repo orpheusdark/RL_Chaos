@@ -8,8 +8,50 @@ from typing import Any, Dict
 import torch
 
 from env import ChaosOpsEnv
-from train import generate_model_action, load_unsloth_qwen
 from wrapper import ChaosOpsWrapper
+
+try:
+    # Preferred path: reuse helpers from training module.
+    from train import generate_model_action, load_unsloth_qwen
+except Exception:
+    # Fallback path for environments where train.py cannot import TRL extras.
+    # Evaluation only needs inference helpers, not trainer classes.
+    def load_unsloth_qwen(model_name: str = "Qwen/Qwen2.5-0.5B"):
+        from unsloth import FastLanguageModel
+
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_name,
+            max_seq_length=1024,
+            dtype=None,
+            load_in_4bit=True,
+        )
+
+        return model, tokenizer, FastLanguageModel
+
+
+    def generate_model_action(
+        model: Any,
+        tokenizer: Any,
+        fastlm: Any,
+        prompt: str,
+        temperature: float,
+        max_new_tokens: int = 120,
+    ) -> str:
+        fastlm.for_inference(model)
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
+
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=max(0.2, temperature),
+                top_p=0.95,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+
+        text = tokenizer.decode(out[0], skip_special_tokens=True)
+        return text[-1200:]
 
 
 def run_policy_eval(

@@ -35,7 +35,7 @@
 | 1. Check GPU | Cell 1 | `print(torch.cuda.get_device_name(0))` | 30 sec |
 | 2. Clone Repo | Cell 1 | `!git clone https://github.com/orpheusdark/Chaosops.git` | 30 sec |
 | 3. Install | Cell 2 | `!pip install -U unsloth trl transformers...` | 5-10 min |
-| 4. Train | Cell 3 | `python train.py --episodes 10` | 10-15 min |
+| 4. Train | Cell 3 | `python train.py --train_steps 10` | 10-15 min |
 | 5. Evaluate | Cell 4 | `python eval.py --episodes 20` | 5-10 min |
 | 6. Visualize | Cell 5 | Plot results | 1 min |
 | 7. Save (opt) | Cell 6 | `drive.mount()` + copy | 2 min |
@@ -187,7 +187,7 @@ print("  Output: chaosops-qwen-grpo/\n")
 
 result = subprocess.run(
     [sys.executable, "train.py",
-     "--episodes", "10",
+    "--train_steps", "10",
      "--model_name", "Qwen/Qwen2.5-0.5B",
      "--output_dir", "../chaosops-qwen-grpo"],
     capture_output=False,
@@ -260,6 +260,15 @@ if result.returncode == 0:
     print("✅ Evaluation complete!\n")
 else:
     print(f"❌ Evaluation failed: {result.stderr}")
+    if "mergekit" in result.stderr.lower() or "torch >=" in result.stderr.lower():
+        print("\n🔧 Quick fix for TRL/mergekit mismatch:")
+        print("1) Pull latest repo code (eval no longer depends on TRL trainer imports)")
+        print("2) Re-run evaluation")
+        print("\nRun these in a new cell:")
+        print("%cd /content/Chaosops")
+        print("!git pull")
+        print("%cd /content/Chaosops/chaosops")
+        print("!python eval.py --episodes 20 --adapter_dir ../chaosops-qwen-grpo")
     eval_results = None
 
 # Display results nicely
@@ -506,11 +515,11 @@ After training, you'll have:
 ## ⚡ Tips & Tricks
 
 ### Faster Training
-- Reduce `--episodes` to `5` for quick testing
+- Reduce `--train_steps` to `5` for quick testing
 - Use smaller batch size in train.py
 
 ### Better Performance
-- Increase `--episodes` to `50` for longer training
+- Increase `--train_steps` to `50` for longer training
 - Run evaluation with `--episodes 50` for better stats
 
 ### Debug Training
