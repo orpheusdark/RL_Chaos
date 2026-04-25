@@ -1,0 +1,14 @@
+[
+  {
+    "step": 0,
+    "avg_reward": -0.19999999999999998,
+    "success_rate": 0.0,
+    "avg_steps": 10.0
+  },
+  {
+    "step": 1,
+    "avg_reward": -0.19999999999999998,
+    "success_rate": 0.0,
+    "avg_steps": 10.0
+  }
+]

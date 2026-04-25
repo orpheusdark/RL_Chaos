@@ -235,9 +235,14 @@ def main() -> int:
         try:
             model.load_adapter(args.adapter_dir)
         except Exception:
-            from peft import PeftModel
+            try:
+                from peft import PeftModel
 
-            model = PeftModel.from_pretrained(model, args.adapter_dir)
+                model = PeftModel.from_pretrained(model, args.adapter_dir)
+            except Exception:
+                # Fallback for runs that saved a full Transformers model directory.
+                model = AutoModelForCausalLM.from_pretrained(args.adapter_dir)
+                model.eval()
 
     trained = run_policy_eval(
         model=model,
