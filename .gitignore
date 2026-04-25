@@ -9,3 +9,8 @@ venv/
 env/
 chaosops/chaosops-grpo-out/
 *.log
+*.safetensors
+*.bin
+chaosops-*-grpo/
+chaosops-*-grpo-*/
+train_metrics.json
