@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+typing-extensions
+trl
+transformers
+datasets
+torch
+numpy
+matplotlib
+unsloth
+peft

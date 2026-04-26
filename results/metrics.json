@@ -1,0 +1,13 @@
+{
+  "baseline": {
+    "mean_reward": 8.712912582696385,
+    "success_rate": 0.9,
+    "mean_mttr": 5.4
+  },
+  "trained": {
+    "mean_reward": 10.469613290339852,
+    "success_rate": 0.98,
+    "mean_mttr": 1.2448979591836735
+  },
+  "improvement": 0.07999999999999996
+}

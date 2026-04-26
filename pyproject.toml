@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chaosops-rc"
+version = "1.0.0"
+description = "Multi-service RL environment for distributed system recovery"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ChaosOps Team", email = "info@chaosops.dev"}
+]
+
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "typing-extensions",
+    "trl",
+    "transformers",
+    "datasets",
+    "torch",
+    "numpy",
+    "matplotlib",
+    "unsloth",
+    "peft",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "isort",
+    "mypy",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
